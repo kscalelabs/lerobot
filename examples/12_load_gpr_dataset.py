@@ -6,6 +6,7 @@ Example Usage:
 """
 
 from pathlib import Path
+from PIL import Image, ImageDraw
 import torch
 from torch.utils.data import DataLoader
 from pprint import pprint
@@ -39,12 +40,34 @@ GPR_FEATURES = {
         "shape": (3,),
         "names": ["euler_angles"],
     },
+    "observation.video": {
+        "dtype": "video",
+        "shape": (128, 128, 3),
+        "names": ["frames"],
+    },
     "action": {
         "dtype": "float32",
         "shape": (10,),
         "names": ["joint_commands"],
     },
 }
+
+TOLERANCE_S = 0.03
+
+
+def generate_test_video_frame(width: int, height: int) -> Image:
+    """
+    Generates a dummy video frame with a white square in the top-left corner.
+    :param width: Width of the video frame.
+    :param height: Height of the video frame.
+    :return: PIL Image object.
+    """
+    frame = Image.new("RGB", (width, height), "black")  # Create a black frame
+    draw = ImageDraw.Draw(frame)
+    draw.rectangle(
+        [0, 0, width // 4, height // 4], fill="white"
+    )  # Add a white square in the top-left
+    return frame
 
 
 def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
@@ -57,7 +80,7 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         raw_dir=raw_dir,
         videos_dir=videos_dir,
         fps=fps,  # Your simulation fps
-        video=False  # No video data
+        video=False,  # No video data
     )
 
     # Delete the existing dataset folder if it exists
@@ -67,17 +90,17 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         shutil.rmtree(dataset_path)
 
     # import pdb; pdb.set_trace()
-    
-
 
     # Create dataset instance
     print("\nCreating dataset...")
     dataset = LeRobotDataset.create(
         repo_id="gpr_test",
         fps=fps,
-        features=GPR_FEATURES,  # Using the features dict defined at the top of the file
-        use_videos=False,
+        features=GPR_FEATURES,
+        tolerance_s=TOLERANCE_S,  # timestep indexing tolerance in seconds based on fps
     )
+
+    print("Camera keys:", dataset.meta.camera_keys)
 
     episodes = range(len(episode_data_index["from"]))
     for ep_idx in episodes:
@@ -88,42 +111,29 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         for frame_idx in range(num_frames):
             i = from_idx + frame_idx
             frame_data = hf_dataset[i]
-            
-            # # Debugging: Print data types and shapes
-            # print(f"Frame {frame_idx} of episode {ep_idx}:")
-            # for key, value in frame_data.items():
-            #     if isinstance(value, torch.Tensor):
-            #         print(f"  {key}: dtype={value.dtype}, shape={value.shape}")
-            #     else:
-            #         print(f"  {key}: {value}")
+
+            video_frame = generate_test_video_frame(
+                width=640, height=480
+            )  # dummy images
 
             frame = {
-                "observation.joint_pos": frame_data["observation.joint_pos"].numpy().astype(np.float32),
-                "observation.joint_vel": frame_data["observation.joint_vel"].numpy().astype(np.float32),
-                "observation.ang_vel": frame_data["observation.ang_vel"].numpy().astype(np.float32),
-                "observation.euler_rotation": frame_data["observation.euler_rotation"].numpy().astype(np.float32),
-                "action": frame_data["action"].numpy().astype(np.float32),
-                "timestamp": frame_data["timestamp"]
+                key: frame_data[key].numpy().astype(np.float32)
+                for key in [
+                    "observation.joint_pos",
+                    "observation.joint_vel",
+                    "observation.ang_vel",
+                    "observation.euler_rotation",
+                    "action",
+                ]
             }
-            
-            # print(f"added frame {frame_idx} of episode {ep_idx}")
+            frame["observation.video"] = np.array(video_frame)
+            frame["timestamp"] = frame_data["timestamp"]
+
             dataset.add_frame(frame)
-        
-        # # Debug print before save_episode
-        # print("\nBefore save_episode:")
-        # print("Episode buffer contents:")
-        # for key, value in dataset.episode_buffer.items():
-        #     if isinstance(value, torch.Tensor):
-        #         print(f"  {key}: type={type(value)}, shape={value.shape}")
-        #     elif isinstance(value, np.ndarray):
-        #         print(f"  {key}: type={type(value)}, shape={value.shape}")
-        #     elif isinstance(value, list):
-        #         print(f"  {key}: value[0]={value[0] if len(value) > 0 else 'N/A'}, type={type(value)}, shape={len(value)}")
-        #     else:
-        #         print(f"  {key}: type={type(value)}, value={value}")
-        
-        # import pdb; pdb.set_trace()
-        dataset.save_episode(task="GPR Robot Task")  # You might want to customize this task description
+
+        dataset.save_episode(
+            task="walk forward"
+        )  # You might want to customize this task description
 
     dataset.consolidate()
 
@@ -157,37 +167,45 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
 
     # Then we grab all the image frames from the first camera:
     # import pdb; pdb.set_trace()
-    # camera_key = dataset.meta.camera_keys[0]
-    # frames = [dataset[idx][camera_key] for idx in range(from_idx, to_idx)]
+    camera_key = dataset.meta.camera_keys[0]
+    frames = [dataset[idx][camera_key] for idx in range(from_idx, to_idx)]
 
     # The objects returned by the dataset are all torch.Tensors
-    # print(type(frames[0]))
-    # print(frames[0].shape)
+    print(f"type(frames[0])={type(frames[0])}")
+    print(f"frames[0].shape={frames[0].shape}")
 
     # Since we're using pytorch, the shape is in pytorch, channel-first convention (c, h, w).
     # We can compare this shape with the information available for that feature
-    # pprint(dataset.features[camera_key])
+    print(f"dataset.features camera keys")
+    pprint(dataset.features[camera_key])
     # # In particular:
-    # print(dataset.features[camera_key]["shape"])
+    print(f"camera key shape {dataset.features[camera_key]['shape']}")
     # The shape is in (h, w, c) which is a more universal format.
 
     # For many machine learning applications we need to load the history of past observations or trajectories of
     # future actions. Our datasets can load previous and future frames for each key/modality, using timestamps
     # differences with the current loaded frame. For instance:
     delta_timestamps = {
-        # loads 4 images: 1 second before current frame, 500 ms before, 200 ms before, and current frame
-        # camera_key: [-1, -0.5, -0.20, 0],
-        # loads 8 state vectors: 1.5 seconds before, 1 second before, ... 200 ms, 100 ms, and current frame
-        # "observation.state": [-1.5, -1, -0.5, -0.20, -0.10, 0],
+        # 0 is current frame, -1/fps is 1 frame in the past
+        "observation.joint_pos": [0, -1 / dataset.fps],
+        "observation.joint_vel": [0, -1 / dataset.fps],
+        "observation.ang_vel": [0, -1 / dataset.fps],
+        "observation.euler_rotation": [0, -1 / dataset.fps],
+        "observation.video": [0, -1 / dataset.fps],
         # loads 64 action vectors: current frame, 1 frame in the future, 2 frames, ... 63 frames in the future
         "action": [t / dataset.fps for t in range(64)],
     }
     # Note that in any case, these delta_timestamps values need to be multiples of (1/fps) so that added to any
     # timestamp, you still get a valid timestamp.
-
-    dataset = LeRobotDataset(repo_id="gpr_test", delta_timestamps=delta_timestamps, local_files_only=True)
-    # print(f"\n{dataset[0][camera_key].shape=}")  # (4, c, h, w)
-    # print(f"{dataset[0]['observation.state'].shape=}")  # (6, c)
+    # local_files_only=True to load from local cache
+    dataset = LeRobotDataset(
+        repo_id="gpr_test",
+        delta_timestamps=delta_timestamps,
+        local_files_only=True,
+        tolerance_s=TOLERANCE_S,
+    )
+    print(f"\n{dataset[0]['observation.video'].shape=}")  # (4, c, h, w)
+    print(f"{dataset[0]['observation.joint_pos'].shape=}")  # (6, c)
     print(f"{dataset[0]['action'].shape=}\n")  # (64, c)
 
     # Finally, our datasets are fully compatible with PyTorch dataloaders and samplers because they are just
@@ -200,9 +218,12 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
     )
 
     for batch in dataloader:
-        # print(f"{batch[camera_key].shape=}")  # (32, 4, c, h, w)
-        # print(f"{batch['observation.state'].shape=}")  # (32, 5, c)
-        print(f"{batch['action'].shape=}")  # (32, 64, c)
+        print(f"{batch['observation.joint_pos'].shape=}")
+        print(f"{batch['observation.joint_vel'].shape=}")
+        print(f"{batch['observation.ang_vel'].shape=}")
+        print(f"{batch['observation.euler_rotation'].shape=}")
+        print(f"{batch['observation.video'].shape=}")
+        print(f"{batch['action'].shape=}")
         break
 
 
