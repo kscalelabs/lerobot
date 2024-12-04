@@ -1,5 +1,5 @@
 """
-This script demonstrates loading and testing the GPR (General Purpose Robot) as a Lerobot dataset locally. (not working yet)
+This script demonstrates loading and testing the GPR (General Purpose Robot) from KREC format as a Lerobot dataset locally. (not working yet)
 
 Example Usage:
     python examples/12_load_gpr_dataset.py --raw_dir /path/to/h5/files
