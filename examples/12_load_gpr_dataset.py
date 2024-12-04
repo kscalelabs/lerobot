@@ -53,20 +53,25 @@ GPR_FEATURES = {
 }
 
 TOLERANCE_S = 0.03
+REPO_ID = "gpr_test_h5"
 
 
-def generate_test_video_frame(width: int, height: int) -> Image:
+def generate_test_video_frame(width: int, height: int, frame_idx: int) -> Image:
     """
-    Generates a dummy video frame with a white square in the top-left corner.
+    Generates a dummy video frame with a white square that moves based on the frame index.
     :param width: Width of the video frame.
     :param height: Height of the video frame.
+    :param frame_idx: Index of the frame to determine the position of the white square.
     :return: PIL Image object.
     """
     frame = Image.new("RGB", (width, height), "black")  # Create a black frame
     draw = ImageDraw.Draw(frame)
+    square_size = min(width, height) // 4
+    x = (frame_idx * 10) % (width - square_size)
+    y = (frame_idx * 10) % (height - square_size)
     draw.rectangle(
-        [0, 0, width // 4, height // 4], fill="white"
-    )  # Add a white square in the top-left
+        [x, y, x + square_size, y + square_size], fill="white"
+    )  # Add a white square that moves
     return frame
 
 
@@ -84,7 +89,7 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
     )
 
     # Delete the existing dataset folder if it exists
-    dataset_path = Path.home() / ".cache/huggingface/lerobot/gpr_test"
+    dataset_path = Path.home() / ".cache/huggingface/lerobot/" / REPO_ID
     if dataset_path.exists():
         print(f"Deleting existing dataset folder: {dataset_path}")
         shutil.rmtree(dataset_path)
@@ -94,10 +99,11 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
     # Create dataset instance
     print("\nCreating dataset...")
     dataset = LeRobotDataset.create(
-        repo_id="gpr_test",
+        repo_id=REPO_ID,
         fps=fps,
         features=GPR_FEATURES,
         tolerance_s=TOLERANCE_S,  # timestep indexing tolerance in seconds based on fps
+        use_videos=True
     )
 
     print("Camera keys:", dataset.meta.camera_keys)
@@ -113,7 +119,7 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
             frame_data = hf_dataset[i]
 
             video_frame = generate_test_video_frame(
-                width=640, height=480
+                width=640, height=480, frame_idx=frame_idx
             )  # dummy images
 
             frame = {
@@ -132,7 +138,8 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
             dataset.add_frame(frame)
 
         dataset.save_episode(
-            task="walk forward"
+            task="walk forward",
+            encode_videos=True,
         )  # You might want to customize this task description
 
     dataset.consolidate()
@@ -199,7 +206,7 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
     # timestamp, you still get a valid timestamp.
     # local_files_only=True to load from local cache
     dataset = LeRobotDataset(
-        repo_id="gpr_test",
+        repo_id=REPO_ID,
         delta_timestamps=delta_timestamps,
         local_files_only=True,
         tolerance_s=TOLERANCE_S,
@@ -225,6 +232,22 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         print(f"{batch['observation.video'].shape=}")
         print(f"{batch['action'].shape=}")
         break
+    
+"""
+# CHANGE REPO ID
+python lerobot/scripts/visualize_dataset.py \
+    --repo-id {REPO_ID} \
+    --root /home/kasm-user/.cache/huggingface/lerobot/{REPO_ID} \
+    --local-files-only 1 \
+    --episode-index 0
+    
+python lerobot/scripts/visualize_dataset.py \
+    --repo-id gpr_test_h5 \
+    --root /home/kasm-user/.cache/huggingface/lerobot/gpr_test_h5 \
+    --local-files-only 1 \
+    --episode-index 0
+
+"""
 
 
 if __name__ == "__main__":
