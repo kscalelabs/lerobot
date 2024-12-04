@@ -2,7 +2,9 @@
 This script demonstrates loading and testing the GPR (General Purpose Robot) from KREC format as a Lerobot dataset locally. (not working yet)
 
 Example Usage:
-    python examples/12_load_gpr_dataset.py --raw_dir /path/to/h5/files
+    python examples/13_load_gpr_krec_dataset.py --raw_dir /path/to/krec/files
+    
+    python examples/13_load_gpr_krec_dataset.py --raw_dir /home/kasm-user/ali_repos/kmodel/data/datasets/krec_data/dec_3__11_10am_og_krecs_edited/2024-12-03_17-47-30/
 """
 
 from pathlib import Path
@@ -14,20 +16,22 @@ import shutil
 import argparse
 import numpy as np
 
-from lerobot.common.datasets.push_dataset_to_hub.gpr_h5_format import (
+from lerobot.common.datasets.push_dataset_to_hub.gpr_krec_format import (
     from_raw_to_lerobot_format,
 )
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
+NUM_ACTUATORS = 5
+
 GPR_FEATURES = {
     "observation.joint_pos": {
         "dtype": "float32",
-        "shape": (10,),
+        "shape": (NUM_ACTUATORS,),
         "names": ["joint_positions"],
     },
     "observation.joint_vel": {
         "dtype": "float32",
-        "shape": (10,),
+        "shape": (NUM_ACTUATORS,),
         "names": ["joint_velocities"],
     },
     "observation.ang_vel": {
@@ -47,7 +51,7 @@ GPR_FEATURES = {
     },
     "action": {
         "dtype": "float32",
-        "shape": (10,),
+        "shape": (NUM_ACTUATORS,),
         "names": ["joint_commands"],
     },
 }
