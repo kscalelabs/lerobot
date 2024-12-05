@@ -169,7 +169,6 @@ def load_from_raw(
         euler_rotation = np.zeros((num_frames, 3), dtype=np.float32)
         prev_actions = np.zeros((num_frames, num_joints), dtype=np.float32)
         curr_actions = np.zeros((num_frames, num_joints), dtype=np.float32)
-        # video_frames = torch.zeros((num_frames, KREC_VIDEO_HEIGHT, KREC_VIDEO_WIDTH, 3), dtype=torch.uint8)  # Changed to store actual video frames
 
         video_frames = None
         if video:
@@ -181,11 +180,12 @@ def load_from_raw(
                     f"({KREC_VIDEO_HEIGHT}, {KREC_VIDEO_WIDTH})"
                 )
 
-            # Create episode video directory with timestamp
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            ep_video_dir = raw_dir / "ep_videos" # / timestamp
+            ep_video_dir = raw_dir / "ep_videos" 
             tmp_imgs_dir = ep_video_dir / "tmp_images"
+            if ep_video_dir.exists():
+                shutil.rmtree(ep_video_dir)
             ep_video_dir.mkdir(parents=True, exist_ok=True)
+            tmp_imgs_dir.mkdir(parents=True, exist_ok=True)
 
             # Save frames as images and encode to video
             save_images_concurrently(video_frames_batch, tmp_imgs_dir)
@@ -206,9 +206,6 @@ def load_from_raw(
         
         # Fill data from KREC frames
         for frame_idx, frame in enumerate(krec_obj):
-            # Load video frame
-
-
             # Joint positions and velocities
             for j, state in enumerate(frame.get_actuator_states()):
                 joint_pos[frame_idx, j] = state.position
