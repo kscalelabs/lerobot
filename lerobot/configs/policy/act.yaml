@@ -1,22 +1,23 @@
 # @package _global_
 
 seed: 1000
-dataset_repo_id: gpr_test_krec  # Match the env config
+dataset_repo_id: lerobot/aloha_sim_insertion_human
+
 override_dataset_stats:
-  observation.images:
-    # Using ImageNet stats since ACT uses pretrained vision model
+  observation.images.top:
+    # stats from imagenet, since we use a pretrained vision model
     mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
     std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
 
 training:
-  offline_steps: 500
+  offline_steps: 100000
   online_steps: 0
-  eval_freq: 0
-  save_freq: 200
+  eval_freq: 20000
+  save_freq: 20000
   save_checkpoint: true
 
   batch_size: 8
-  lr: 1e-4
+  lr: 1e-5
   lr_backbone: 1e-5
   weight_decay: 1e-4
   grad_clip_norm: 10
@@ -39,21 +40,16 @@ policy:
   n_action_steps: 100
 
   input_shapes:
-    observation.images: [3, 480, 640]
-    observation.joint_pos: [5]
-    observation.joint_vel: [5]
-    observation.ang_vel: [3]
-    observation.euler_rotation: [3]
+    # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
+    observation.images.top: [3, 480, 640]
+    observation.state: ["${env.state_dim}"]
   output_shapes:
     action: ["${env.action_dim}"]
 
   # Normalization / Unnormalization
   input_normalization_modes:
-    observation.images: mean_std
-    observation.joint_pos: mean_std
-    observation.joint_vel: mean_std
-    observation.ang_vel: mean_std
-    observation.euler_rotation: mean_std
+    observation.images.top: mean_std
+    observation.state: mean_std
   output_normalization_modes:
     action: mean_std
 
