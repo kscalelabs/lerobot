@@ -98,6 +98,59 @@ def to_hwc_uint8_numpy(chw_float32_torch: torch.Tensor) -> np.ndarray:
     hwc_uint8_numpy = (chw_float32_torch * 255).type(torch.uint8).permute(1, 2, 0).numpy()
     return hwc_uint8_numpy
 
+def visualize_gpr_batch(batch, i, rr, dataset):
+    """Visualize GPR dataset-specific fields."""
+    # display joint positions (10 dimensions)
+    if "observation.joint_pos" in batch:
+        for dim_idx, val in enumerate(batch["observation.joint_pos"][i]):
+            rr.log(f"joint_pos/{dim_idx}", rr.Scalar(val.item()))
+
+    # display joint velocities (10 dimensions) 
+    if "observation.joint_vel" in batch:
+        for dim_idx, val in enumerate(batch["observation.joint_vel"][i]):
+            rr.log(f"joint_vel/{dim_idx}", rr.Scalar(val.item()))
+
+    # display angular velocity (3 dimensions)
+    if "observation.ang_vel" in batch:
+        for dim_idx, val in enumerate(batch["observation.ang_vel"][i]):
+            rr.log(f"ang_vel/{dim_idx}", rr.Scalar(val.item()))
+
+    # display euler rotation (3 dimensions)
+    if "observation.euler_rotation" in batch:
+        for dim_idx, val in enumerate(batch["observation.euler_rotation"][i]):
+            rr.log(f"euler_rotation/{dim_idx}", rr.Scalar(val.item()))
+
+    # display actions (10 dimensions)
+    if "action" in batch:
+        for dim_idx, val in enumerate(batch["action"][i]):
+            rr.log(f"action/{dim_idx}", rr.Scalar(val.item()))
+
+    # display previous actions if available (10 dimensions)
+    if "prev_actions" in batch:
+        for dim_idx, val in enumerate(batch["prev_actions"][i]):
+            rr.log(f"prev_actions/{dim_idx}", rr.Scalar(val.item()))
+
+def visualize_default_batch(batch, i, rr, dataset):
+    """Visualize default dataset fields."""
+    # display each dimension of action space (e.g. actuators command)
+    if "action" in batch:
+        for dim_idx, val in enumerate(batch["action"][i]):
+            rr.log(f"action/{dim_idx}", rr.Scalar(val.item()))
+
+    # display each dimension of observed state space (e.g. agent position in joint space)
+    if "observation.state" in batch:
+        for dim_idx, val in enumerate(batch["observation.state"][i]):
+            rr.log(f"state/{dim_idx}", rr.Scalar(val.item()))
+
+    if "next.done" in batch:
+        rr.log("next.done", rr.Scalar(batch["next.done"][i].item()))
+
+    if "next.reward" in batch:
+        rr.log("next.reward", rr.Scalar(batch["next.reward"][i].item()))
+
+    if "next.success" in batch:
+        rr.log("next.success", rr.Scalar(batch["next.success"][i].item()))
+
 
 def visualize_dataset(
     dataset: LeRobotDataset,
@@ -155,24 +208,11 @@ def visualize_dataset(
                 # TODO(rcadene): add `.compress()`? is it lossless?
                 rr.log(key, rr.Image(to_hwc_uint8_numpy(batch[key][i])))
 
-            # display each dimension of action space (e.g. actuators command)
-            if "action" in batch:
-                for dim_idx, val in enumerate(batch["action"][i]):
-                    rr.log(f"action/{dim_idx}", rr.Scalar(val.item()))
-
-            # display each dimension of observed state space (e.g. agent position in joint space)
-            if "observation.state" in batch:
-                for dim_idx, val in enumerate(batch["observation.state"][i]):
-                    rr.log(f"state/{dim_idx}", rr.Scalar(val.item()))
-
-            if "next.done" in batch:
-                rr.log("next.done", rr.Scalar(batch["next.done"][i].item()))
-
-            if "next.reward" in batch:
-                rr.log("next.reward", rr.Scalar(batch["next.reward"][i].item()))
-
-            if "next.success" in batch:
-                rr.log("next.success", rr.Scalar(batch["next.success"][i].item()))
+            # Choose visualization function based on dataset type
+            if "gpr" in dataset.repo_id:
+                visualize_gpr_batch(batch, i, rr, dataset)
+            else:
+                visualize_default_batch(batch, i, rr, dataset)
 
     if mode == "local" and save:
         # save .rrd locally

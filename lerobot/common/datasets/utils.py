@@ -182,6 +182,9 @@ def hf_transform_to_torch(items_dict: dict[torch.Tensor | None]):
         if isinstance(first_item, PILImage.Image):
             to_tensor = transforms.ToTensor()
             items_dict[key] = [to_tensor(img) for img in items_dict[key]]
+        elif isinstance(first_item, dict) and "path" in first_item:
+            # Skip conversion for video frame dictionaries
+            pass
         elif first_item is None:
             pass
         else:
