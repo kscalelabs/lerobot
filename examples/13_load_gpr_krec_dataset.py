@@ -15,6 +15,7 @@ from pprint import pprint
 import shutil
 import argparse
 import numpy as np
+import decord
 
 from lerobot.common.datasets.push_dataset_to_hub.gpr_krec_format import (
     from_raw_to_lerobot_format,
@@ -22,6 +23,10 @@ from lerobot.common.datasets.push_dataset_to_hub.gpr_krec_format import (
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
 NUM_ACTUATORS = 5
+KREC_VIDEO_WIDTH = 128
+KREC_VIDEO_HEIGHT = 128
+TOLERANCE_S = 0.03
+REPO_ID = "gpr_test_krec"
 
 GPR_FEATURES = {
     "observation.joint_pos": {
@@ -44,9 +49,9 @@ GPR_FEATURES = {
         "shape": (3,),
         "names": ["euler_angles"],
     },
-    "observation.video": {
+    "observation.images": {
         "dtype": "video",
-        "shape": (128, 128, 3),
+        "shape": (KREC_VIDEO_HEIGHT, KREC_VIDEO_WIDTH, 3),
         "names": ["frames"],
     },
     "action": {
@@ -56,8 +61,6 @@ GPR_FEATURES = {
     },
 }
 
-TOLERANCE_S = 0.03
-REPO_ID = "gpr_test_h5"
 
 
 def generate_test_video_frame(width: int, height: int, frame_idx: int) -> Image:
@@ -78,6 +81,37 @@ def generate_test_video_frame(width: int, height: int, frame_idx: int) -> Image:
     )  # Add a white square that moves
     return frame
 
+def load_video_frame(video_frame_data: dict, video_readers: dict, root_dir: Path) -> torch.Tensor:
+    """Load a specific frame from a video file using timestamp information.
+    
+    Args:
+        video_frame_data: Dictionary containing 'path' and 'timestamp' keys
+        video_readers: Dictionary mapping video paths to VideoReader objects
+        root_dir: Root directory where videos are stored
+    
+    Returns:
+        torch.Tensor: Video frame in (C, H, W) format, normalized to [0,1]
+    """
+    video_path = root_dir / video_frame_data['path']
+    
+    # Reuse existing VideoReader or create new one
+    if str(video_path) not in video_readers:
+        video_readers[str(video_path)] = decord.VideoReader(str(video_path), ctx=decord.cpu(0))
+    vr = video_readers[str(video_path)]
+    
+    # Convert timestamp to frame index
+    fps = 30  # len(vr) / vr.get_avg_duration()
+    frame_idx = int(video_frame_data['timestamp'] * fps)
+    
+    # Load the specific frame, clamping frame_idx to valid range
+    frame_idx = min(max(frame_idx, 0), len(vr) - 1)  # Clamp between 0 and last frame
+    frame = vr[frame_idx].asnumpy()
+    frame = torch.from_numpy(frame).float()
+    frame = frame.permute(2, 0, 1)  # (H, W, C) -> (C, H, W)
+    frame = frame / 255.0
+    
+    return frame
+
 
 def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
     # Setup paths
@@ -89,7 +123,7 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         raw_dir=raw_dir,
         videos_dir=videos_dir,
         fps=fps,  # Your simulation fps
-        video=False,  # No video data
+        video=True,  # Video data
     )
 
     # Delete the existing dataset folder if it exists
@@ -112,8 +146,12 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
 
     print("Camera keys:", dataset.meta.camera_keys)
 
+    # Add video_readers dictionary to cache VideoReader objects
+    video_readers = {}
+
     episodes = range(len(episode_data_index["from"]))
     for ep_idx in episodes:
+        print(f"Processing episode {ep_idx}")
         from_idx = episode_data_index["from"][ep_idx].item()
         to_idx = episode_data_index["to"][ep_idx].item()
         num_frames = to_idx - from_idx
@@ -121,10 +159,12 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         for frame_idx in range(num_frames):
             i = from_idx + frame_idx
             frame_data = hf_dataset[i]
-
-            video_frame = generate_test_video_frame(
-                width=640, height=480, frame_idx=frame_idx
-            )  # dummy images
+            video_frame = load_video_frame(
+                frame_data["observation.images.camera"], 
+                video_readers=video_readers,  # Pass the video_readers dictionary
+                root_dir=raw_dir
+            )
+            # print(video_frame.shape)
 
             frame = {
                 key: frame_data[key].numpy().astype(np.float32)
@@ -136,17 +176,21 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
                     "action",
                 ]
             }
-            frame["observation.video"] = np.array(video_frame)
+            frame["observation.images"] = np.array(video_frame)
             frame["timestamp"] = frame_data["timestamp"]
 
             dataset.add_frame(frame)
-
+        print(f"Saving episode {ep_idx}")
         dataset.save_episode(
             task="walk forward",
             encode_videos=True,
         )  # You might want to customize this task description
+        print(f"Done saving episode {ep_idx}")
 
+    print("Consolidating dataset...")
     dataset.consolidate()
+    print("Done consolidating dataset")
+    video_readers.clear()
 
     #########################################################
     # From this point on its copy paste from lerobot/examples/1_load_lerobot_dataset.py
@@ -202,7 +246,7 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         "observation.joint_vel": [0, -1 / dataset.fps],
         "observation.ang_vel": [0, -1 / dataset.fps],
         "observation.euler_rotation": [0, -1 / dataset.fps],
-        "observation.video": [0, -1 / dataset.fps],
+        "observation.images": [0, -1 / dataset.fps],
         # loads 64 action vectors: current frame, 1 frame in the future, 2 frames, ... 63 frames in the future
         "action": [t / dataset.fps for t in range(64)],
     }
@@ -215,7 +259,7 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         local_files_only=True,
         tolerance_s=TOLERANCE_S,
     )
-    print(f"\n{dataset[0]['observation.video'].shape=}")  # (4, c, h, w)
+    print(f"\n{dataset[0]['observation.images'].shape=}")  # (4, c, h, w)
     print(f"{dataset[0]['observation.joint_pos'].shape=}")  # (6, c)
     print(f"{dataset[0]['action'].shape=}\n")  # (64, c)
 
@@ -233,7 +277,7 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         print(f"{batch['observation.joint_vel'].shape=}")
         print(f"{batch['observation.ang_vel'].shape=}")
         print(f"{batch['observation.euler_rotation'].shape=}")
-        print(f"{batch['observation.video'].shape=}")
+        print(f"{batch['observation.images'].shape=}")
         print(f"{batch['action'].shape=}")
         break
     
@@ -246,12 +290,22 @@ python lerobot/scripts/visualize_dataset.py \
     --episode-index 0
     
 python lerobot/scripts/visualize_dataset.py \
-    --repo-id gpr_test_h5 \
-    --root /home/kasm-user/.cache/huggingface/lerobot/gpr_test_h5 \
+    --repo-id gpr_test_krec \
+    --root /home/kasm-user/.cache/huggingface/lerobot/gpr_test_krec \
     --local-files-only 1 \
+    --episode-index 0
+    
+python lerobot/scripts/visualize_dataset.py \
+    --repo-id gpr_test_krec_vid_backup \
+    --root /home/kasm-user/.cache/huggingface/lerobot/gpr_test_krec_vid_backup \
+    --local-files-only 1 \
+    --num-workers 1 \
     --episode-index 0
 
 """
+
+    # Clean up video readers
+    
 
 
 if __name__ == "__main__":

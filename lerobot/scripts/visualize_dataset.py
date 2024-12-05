@@ -209,7 +209,7 @@ def visualize_dataset(
                 rr.log(key, rr.Image(to_hwc_uint8_numpy(batch[key][i])))
 
             # Choose visualization function based on dataset type
-            if dataset.repo_id == "gpr_test_h5":
+            if "gpr" in dataset.repo_id:
                 visualize_gpr_batch(batch, i, rr, dataset)
             else:
                 visualize_default_batch(batch, i, rr, dataset)
