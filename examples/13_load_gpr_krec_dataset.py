@@ -1,26 +1,36 @@
 """
-This script demonstrates loading and testing the GPR (General Purpose Robot) from KREC format as a Lerobot dataset locally. (not working yet)
+This script demonstrates loading and testing the GPR (General Purpose Robot) 
+from KREC format as a Lerobot dataset locally.
 
-Example Usage:
+Run:
     python examples/13_load_gpr_krec_dataset.py --raw_dir /path/to/krec/files
-    
-    python examples/13_load_gpr_krec_dataset.py --raw_dir /home/kasm-user/ali_repos/kmodel/data/datasets/krec_data/dec_3__11_10am_og_krecs_edited/2024-12-03_17-47-30/
+
+Run visualize script to check the dataset:
+    python lerobot/scripts/visualize_dataset.py \
+        --repo-id {REPO_ID} \
+        --root .cache/huggingface/lerobot/{REPO_ID} \
+        --local-files-only 1 \
+        --episode-index 0
+        
+    python lerobot/scripts/visualize_dataset.py \
+        --repo-id gpr_test_krec \
+        --root ~/.cache/huggingface/lerobot/gpr_test_krec \
+        --local-files-only 1 \
+        --episode-index 0
 """
-
-from pathlib import Path
-from PIL import Image, ImageDraw
-import torch
-from torch.utils.data import DataLoader
-from pprint import pprint
-import shutil
 import argparse
-import numpy as np
-import decord
+import shutil
+from pathlib import Path
+from pprint import pprint
 
-from lerobot.common.datasets.push_dataset_to_hub.gpr_krec_format import (
-    from_raw_to_lerobot_format,
-)
+import decord
+import numpy as np
+import torch
+from PIL import Image, ImageDraw
+
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.common.datasets.push_dataset_to_hub.gpr_krec_format import \
+    from_raw_to_lerobot_format
 
 NUM_ACTUATORS = 5
 KREC_VIDEO_WIDTH = 128
@@ -62,7 +72,6 @@ GPR_FEATURES = {
 }
 
 
-
 def generate_test_video_frame(width: int, height: int, frame_idx: int) -> Image:
     """
     Generates a dummy video frame with a white square that moves based on the frame index.
@@ -80,6 +89,7 @@ def generate_test_video_frame(width: int, height: int, frame_idx: int) -> Image:
         [x, y, x + square_size, y + square_size], fill="white"
     )  # Add a white square that moves
     return frame
+
 
 def load_video_frame(video_frame_data: dict, video_readers: dict, root_dir: Path) -> torch.Tensor:
     """Load a specific frame from a video file using timestamp information.
@@ -132,8 +142,6 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         print(f"Deleting existing dataset folder: {dataset_path}")
         shutil.rmtree(dataset_path)
 
-    # import pdb; pdb.set_trace()
-
     # Create dataset instance
     print("\nCreating dataset...")
     dataset = LeRobotDataset.create(
@@ -164,7 +172,6 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
                 video_readers=video_readers,  # Pass the video_readers dictionary
                 root_dir=raw_dir
             )
-            # print(video_frame.shape)
 
             frame = {
                 key: frame_data[key].numpy().astype(np.float32)
@@ -280,32 +287,6 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         print(f"{batch['observation.images'].shape=}")
         print(f"{batch['action'].shape=}")
         break
-    
-"""
-# CHANGE REPO ID
-python lerobot/scripts/visualize_dataset.py \
-    --repo-id {REPO_ID} \
-    --root /home/kasm-user/.cache/huggingface/lerobot/{REPO_ID} \
-    --local-files-only 1 \
-    --episode-index 0
-    
-python lerobot/scripts/visualize_dataset.py \
-    --repo-id gpr_test_krec \
-    --root /home/kasm-user/.cache/huggingface/lerobot/gpr_test_krec \
-    --local-files-only 1 \
-    --episode-index 0
-    
-python lerobot/scripts/visualize_dataset.py \
-    --repo-id gpr_test_krec_vid_backup \
-    --root /home/kasm-user/.cache/huggingface/lerobot/gpr_test_krec_vid_backup \
-    --local-files-only 1 \
-    --num-workers 1 \
-    --episode-index 0
-
-"""
-
-    # Clean up video readers
-    
 
 
 if __name__ == "__main__":
