@@ -97,6 +97,7 @@ def make_dataset(cfg, split: str = "train") -> LeRobotDataset | MultiLeRobotData
             delta_timestamps=cfg.training.get("delta_timestamps"),
             image_transforms=image_transforms,
             video_backend=cfg.video_backend,
+            local_files_only=cfg.get('dataset_local_files_only', False)
         )
     else:
         dataset = MultiLeRobotDataset(
@@ -104,6 +105,7 @@ def make_dataset(cfg, split: str = "train") -> LeRobotDataset | MultiLeRobotData
             delta_timestamps=cfg.training.get("delta_timestamps"),
             image_transforms=image_transforms,
             video_backend=cfg.video_backend,
+            local_files_only=cfg.get('dataset_local_files_only', False)
         )
 
     if cfg.get("override_dataset_stats"):

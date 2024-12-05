@@ -1,4 +1,5 @@
-# @package _global_
+defaults:
+  - act  # Inherit from base ACT config
 
 seed: 1000
 dataset_repo_id: gpr_test_krec  # Match the env config
