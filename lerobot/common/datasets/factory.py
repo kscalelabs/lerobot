@@ -97,6 +97,7 @@ def make_dataset(cfg, split: str = "train") -> LeRobotDataset | MultiLeRobotData
             delta_timestamps=cfg.training.get("delta_timestamps"),
             image_transforms=image_transforms,
             video_backend=cfg.video_backend,
+            local_files_only=cfg.get('dataset_local_files_only', False)
         )
     else:
         dataset = MultiLeRobotDataset(
@@ -104,6 +105,7 @@ def make_dataset(cfg, split: str = "train") -> LeRobotDataset | MultiLeRobotData
             delta_timestamps=cfg.training.get("delta_timestamps"),
             image_transforms=image_transforms,
             video_backend=cfg.video_backend,
+            local_files_only=cfg.get('dataset_local_files_only', False)
         )
 
     if cfg.get("override_dataset_stats"):
@@ -111,6 +113,26 @@ def make_dataset(cfg, split: str = "train") -> LeRobotDataset | MultiLeRobotData
             for stats_type, listconfig in stats_dict.items():
                 # example of stats_type: min, max, mean, std
                 stats = OmegaConf.to_container(listconfig, resolve=True)
+                # Here we are overriding the stats that were computed by the dataset.consolidate function.
+                # If that was part was skipped by the user, the stats dict will not exist, and the original code
+                # will throw an error. Instead we log a warning and create the missing stats dict.
+                # This is fine since we are overriding the stats here anyway.
+                # If there are actual missing dataset stats, we throw an error in the assert below.
+                if not hasattr(dataset.meta, 'stats') or not dataset.meta.stats:
+                    logging.warning("dataset.meta.stats not found, creating new stats dict")
+                    dataset.meta.stats = {}
+                if not dataset.meta.stats.get(key):
+                    logging.warning(f"dataset.meta.stats[{key}] not found, creating new stats dict for key")
+                    dataset.meta.stats[key] = {}
                 dataset.meta.stats[key][stats_type] = torch.tensor(stats, dtype=torch.float32)
+        
+        # Check for any actual missing dataset stats
+        policy_cfg = cfg.get("policy")
+        input_keys = set(policy_cfg.get("input_shapes").keys())
+        output_keys = set(policy_cfg.get("output_shapes").keys())
+        input_and_output_keys = input_keys | output_keys
+        dataset_stats_keys = set(dataset.meta.stats.keys())
+        missing_keys = input_and_output_keys - dataset_stats_keys
+        assert not missing_keys, f"Missing stats for keys: {missing_keys}"
 
     return dataset
