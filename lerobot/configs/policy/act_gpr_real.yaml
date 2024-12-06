@@ -3,31 +3,31 @@
 
 
 seed: 1000
-dataset_repo_id: gpr_test_krec
+dataset_repo_id: gpr_test_krec_full_w_stats
 
 override_dataset_stats:
   observation.images.camera:
     # Using ImageNet stats since ACT uses pretrained vision model
     mean: [[[0.485]], [[0.456]], [[0.406]]]  # (c,1,1)
     std: [[[0.229]], [[0.224]], [[0.225]]]  # (c,1,1)
-  observation.state:
-    mean: [[0.0, 0.0, 0.0, 0.0, 0.0]]  # (1,5)
-    std: [[1.0, 1.0, 1.0, 1.0, 1.0]]  # (1,5)
-  observation.joint_pos:
-    mean: [[0.0, 0.0, 0.0, 0.0, 0.0]]  # (1,5)
-    std: [[1.0, 1.0, 1.0, 1.0, 1.0]]  # (1,5)
-  observation.joint_vel:
-    mean: [[0.0, 0.0, 0.0, 0.0, 0.0]]  # (1,5)
-    std: [[1.0, 1.0, 1.0, 1.0, 1.0]]  # (1,5)
-  observation.ang_vel:
-    mean: [[0.0, 0.0, 0.0]]  # (1,3)
-    std: [[1.0, 1.0, 1.0]]  # (1,3)
-  observation.euler_rotation:
-    mean: [[0.0, 0.0, 0.0]]  # (1,3)
-    std: [[1.0, 1.0, 1.0]]  # (1,3)
-  action:
-    mean: [[0.0, 0.0, 0.0, 0.0, 0.0]]  # (1,5)
-    std: [[1.0, 1.0, 1.0, 1.0, 1.0]]  # (1,5)
+  # observation.state:
+  #   mean: [[0.0, 0.0, 0.0, 0.0, 0.0]]  # (1,5)
+  #   std: [[1.0, 1.0, 1.0, 1.0, 1.0]]  # (1,5)
+  # observation.joint_pos:
+  #   mean: [[0.0, 0.0, 0.0, 0.0, 0.0]]  # (1,5)
+  #   std: [[1.0, 1.0, 1.0, 1.0, 1.0]]  # (1,5)
+  # observation.joint_vel:
+  #   mean: [[0.0, 0.0, 0.0, 0.0, 0.0]]  # (1,5)
+  #   std: [[1.0, 1.0, 1.0, 1.0, 1.0]]  # (1,5)
+  # observation.ang_vel:
+  #   mean: [[0.0, 0.0, 0.0]]  # (1,3)
+  #   std: [[1.0, 1.0, 1.0]]  # (1,3)
+  # observation.euler_rotation:
+  #   mean: [[0.0, 0.0, 0.0]]  # (1,3)
+  #   std: [[1.0, 1.0, 1.0]]  # (1,3)
+  # action:
+  #   mean: [[0.0, 0.0, 0.0, 0.0, 0.0]]  # (1,5)
+  #   std: [[1.0, 1.0, 1.0, 1.0, 1.0]]  # (1,5)
 
 training:
   offline_steps: 500000
