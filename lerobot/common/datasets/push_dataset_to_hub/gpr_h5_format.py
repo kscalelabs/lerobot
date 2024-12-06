@@ -6,13 +6,14 @@ Example Usage:
 """
 
 import argparse
+from pathlib import Path
+from pprint import pprint
+
 import h5py
 import numpy as np
 import torch
-from pathlib import Path
 from datasets import Dataset, Features, Sequence, Value
 from tqdm import tqdm
-from pprint import pprint
 
 from lerobot.common.datasets.lerobot_dataset import CODEBASE_VERSION
 from lerobot.common.datasets.push_dataset_to_hub.utils import (

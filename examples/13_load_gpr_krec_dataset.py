@@ -18,8 +18,10 @@ Run visualize script to check the dataset:
         --local-files-only 1 \
         --episode-index 0
 """
+
 import argparse
 import shutil
+import tqdm
 from pathlib import Path
 from pprint import pprint
 
@@ -29,10 +31,9 @@ import torch
 from PIL import Image, ImageDraw
 
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-from lerobot.common.datasets.push_dataset_to_hub.gpr_krec_format import \
-    from_raw_to_lerobot_format
-    
-import tqdm
+from lerobot.common.datasets.push_dataset_to_hub.gpr_krec_format import (
+    from_raw_to_lerobot_format,
+)
 
 
 NUM_ACTUATORS = 5
@@ -45,7 +46,7 @@ GPR_FEATURES = {
     "observation.state": {
         "dtype": "float32",
         "shape": (NUM_ACTUATORS,),
-        "names": ["state"], # these are just the joint positions
+        "names": ["state"],  # these are just the joint positions
     },
     "observation.joint_pos": {
         "dtype": "float32",
@@ -101,11 +102,11 @@ def generate_test_video_frame(width: int, height: int, frame_idx: int) -> Image:
 
 def load_video_frames_batch(video_path: str, num_frames: int) -> np.ndarray:
     """Load all video frames at once using decord.
-    
+
     Args:
         video_path: Path to the video file
         num_frames: Number of frames to load
-        
+
     Returns:
         np.ndarray: Batch of video frames in (N, H, W, C) format
     """
@@ -141,7 +142,7 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         fps=fps,
         features=GPR_FEATURES,
         tolerance_s=TOLERANCE_S,  # timestep indexing tolerance in seconds based on fps
-        use_videos=True
+        use_videos=True,
     )
 
     print("Camera keys:", dataset.meta.camera_keys)
@@ -157,10 +158,14 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         num_frames = to_idx - from_idx
 
         # Load all video frames for this episode at once
-        video_path = next(raw_dir.glob("*.krec.mkv"))  # Adjust this if you have multiple video files
+        video_path = next(
+            raw_dir.glob("*.krec.mkv")
+        )  # Adjust this if you have multiple video files
         video_frames_batch = load_video_frames_batch(str(video_path), num_frames)
-        
-        for frame_idx in tqdm.tqdm(range(num_frames), desc=f"Processing frames for episode {ep_idx}"):
+
+        for frame_idx in tqdm.tqdm(
+            range(num_frames), desc=f"Processing frames for episode {ep_idx}"
+        ):
             i = from_idx + frame_idx
             frame_data = hf_dataset[i]
 
@@ -169,14 +174,14 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
                 for key in [
                     "observation.state",
                     "observation.joint_pos",
-                    "observation.joint_vel", 
+                    "observation.joint_vel",
                     "observation.ang_vel",
                     "observation.euler_rotation",
                     "action",
                 ]
             }
             # Use the pre-loaded video frame, clamping frame_idx if needed
-            clamped_idx = min(frame_idx, len(video_frames_batch)-1)
+            clamped_idx = min(frame_idx, len(video_frames_batch) - 1)
             frame["observation.images.camera"] = video_frames_batch[clamped_idx]
             frame["timestamp"] = frame_data["timestamp"]
 
@@ -277,10 +282,10 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
     )
 
     for batch in dataloader:
-        
+
         # Print shapes for all keys in batch that have a shape attribute
         for key in batch:
-            if hasattr(batch[key], 'shape'):
+            if hasattr(batch[key], "shape"):
                 print(f"{key}={batch[key].shape}")
             else:
                 print(f"Key with no shape: {key}")
