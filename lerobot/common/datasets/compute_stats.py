@@ -19,6 +19,8 @@ from math import ceil
 import einops
 import torch
 import tqdm
+import logging
+import time
 
 
 def get_stats_einops_patterns(dataset, num_workers=0):
@@ -65,12 +67,21 @@ def get_stats_einops_patterns(dataset, num_workers=0):
 
 def compute_stats(dataset, batch_size=8, num_workers=8, max_num_samples=None):
     """Compute mean/std and min/max statistics of all data keys in a LeRobotDataset."""
+    start_time = time.time()
+    
+    logging.debug("Starting stats computation...")
+    
     if max_num_samples is None:
         max_num_samples = len(dataset)
 
+    # Initial setup
+    t0 = time.time()
     # for more info on why we need to set the same number of workers, see `load_from_videos`
     stats_patterns = get_stats_einops_patterns(dataset, num_workers)
+    logging.debug(f"Getting stats patterns took {time.time() - t0:.2f}s")
 
+    # Initialize dictionaries
+    t0 = time.time()
     # mean and std will be computed incrementally while max and min will track the running value.
     mean, std, max, min = {}, {}, {}, {}
     for key in stats_patterns:
@@ -78,6 +89,7 @@ def compute_stats(dataset, batch_size=8, num_workers=8, max_num_samples=None):
         std[key] = torch.tensor(0.0).float()
         max[key] = torch.tensor(-float("inf")).float()
         min[key] = torch.tensor(float("inf")).float()
+    logging.debug(f"Dictionary initialization took {time.time() - t0:.2f}s")
 
     def create_seeded_dataloader(dataset, batch_size, seed):
         generator = torch.Generator()
@@ -92,6 +104,8 @@ def compute_stats(dataset, batch_size=8, num_workers=8, max_num_samples=None):
         )
         return dataloader
 
+    # First pass - compute mean, min, max
+    t0 = time.time()
     # Note: Due to be refactored soon. The point of storing `first_batch` is to make sure we don't get
     # surprises when rerunning the sampler.
     first_batch = None
@@ -119,7 +133,10 @@ def compute_stats(dataset, batch_size=8, num_workers=8, max_num_samples=None):
 
         if i == ceil(max_num_samples / batch_size) - 1:
             break
+    logging.debug(f"First pass (mean, min, max) took {time.time() - t0:.2f}s")
 
+    # Second pass - compute std
+    t0 = time.time()
     first_batch_ = None
     running_item_count = 0  # for online std computation
     dataloader = create_seeded_dataloader(dataset, batch_size, seed=1337)
@@ -142,7 +159,10 @@ def compute_stats(dataset, batch_size=8, num_workers=8, max_num_samples=None):
 
         if i == ceil(max_num_samples / batch_size) - 1:
             break
+    logging.debug(f"Second pass (std) took {time.time() - t0:.2f}s")
 
+    # Final processing
+    t0 = time.time()
     for key in stats_patterns:
         std[key] = torch.sqrt(std[key])
 
@@ -154,6 +174,11 @@ def compute_stats(dataset, batch_size=8, num_workers=8, max_num_samples=None):
             "max": max[key],
             "min": min[key],
         }
+    logging.debug(f"Final stats processing took {time.time() - t0:.2f}s")
+    
+    total_time = time.time() - start_time
+    logging.debug(f"Total stats computation time: {total_time:.2f}s")
+    
     return stats
 
 

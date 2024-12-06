@@ -292,16 +292,26 @@ class ACT(nn.Module):
         self.config = config
         # BERT style VAE encoder with input tokens [cls, robot_state, *action_sequence].
         # The cls token forms parameters of the latent's distribution (like this [*means, *log_variances]).
-        self.use_robot_state = "observation.state" in config.input_shapes
+        # Use our robot state instead of hardcoded "observation.state"
+        self.krec_robot_state_keys = ["observation.joint_pos", "observation.joint_vel", "observation.ang_vel", "observation.euler_rotation"]
+        self.use_robot_state = any(k in self.krec_robot_state_keys for k in config.input_shapes)
         self.use_images = any(k.startswith("observation.image") for k in config.input_shapes)
         self.use_env_state = "observation.environment_state" in config.input_shapes
+
+        self.robot_state_dim = 0
+        if self.use_robot_state:
+            self.robot_state_dim = sum(
+                shape[0] for key, shape in config.input_shapes.items() 
+                if key in self.krec_robot_state_keys
+            )
+
         if self.config.use_vae:
             self.vae_encoder = ACTEncoder(config, is_vae_encoder=True)
             self.vae_encoder_cls_embed = nn.Embedding(1, config.dim_model)
             # Projection layer for joint-space configuration to hidden dimension.
             if self.use_robot_state:
                 self.vae_encoder_robot_state_input_proj = nn.Linear(
-                    config.input_shapes["observation.state"][0], config.dim_model
+                    self.robot_state_dim, config.dim_model
                 )
             # Projection layer for action (joint-space target) to hidden dimension.
             self.vae_encoder_action_input_proj = nn.Linear(
@@ -339,7 +349,7 @@ class ACT(nn.Module):
         # [latent, (robot_state), (env_state), (image_feature_map_pixels)].
         if self.use_robot_state:
             self.encoder_robot_state_input_proj = nn.Linear(
-                config.input_shapes["observation.state"][0], config.dim_model
+                self.robot_state_dim, config.dim_model
             )
         if self.use_env_state:
             self.encoder_env_state_input_proj = nn.Linear(
@@ -375,6 +385,14 @@ class ACT(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
+    def _get_robot_state(self, batch: dict[str, Tensor]) -> Tensor:
+        """Helper method to concatenate robot state tensors."""
+        robot_states = []
+        for key in batch.keys():
+            if key in self.krec_robot_state_keys:
+                robot_states.append(batch[key])
+        return torch.cat(robot_states, dim=-1)
+
     def forward(self, batch: dict[str, Tensor]) -> tuple[Tensor, tuple[Tensor, Tensor] | tuple[None, None]]:
         """A forward pass through the Action Chunking Transformer (with optional VAE encoder).
 
@@ -405,6 +423,8 @@ class ACT(nn.Module):
             else batch["observation.environment_state"]
         ).shape[0]
 
+        # Get device from the batch
+        device = next(iter(batch.values())).device
         # Prepare the latent for input to the transformer encoder.
         if self.config.use_vae and "action" in batch:
             # Prepare the input to the VAE encoder: [cls, *joint_space_configuration, *action_sequence].
@@ -412,7 +432,8 @@ class ACT(nn.Module):
                 self.vae_encoder_cls_embed.weight, "1 d -> b 1 d", b=batch_size
             )  # (B, 1, D)
             if self.use_robot_state:
-                robot_state_embed = self.vae_encoder_robot_state_input_proj(batch["observation.state"])
+                robot_state = self._get_robot_state(batch)
+                robot_state_embed = self.vae_encoder_robot_state_input_proj(robot_state)
                 robot_state_embed = robot_state_embed.unsqueeze(1)  # (B, 1, D)
             action_embed = self.vae_encoder_action_input_proj(batch["action"])  # (B, S, D)
 
@@ -432,7 +453,7 @@ class ACT(nn.Module):
             cls_joint_is_pad = torch.full(
                 (batch_size, 2 if self.use_robot_state else 1),
                 False,
-                device=batch["observation.state"].device,
+                device=device
             )
             key_padding_mask = torch.cat(
                 [cls_joint_is_pad, batch["action_is_pad"]], axis=1
@@ -464,7 +485,8 @@ class ACT(nn.Module):
         encoder_in_pos_embed = list(self.encoder_1d_feature_pos_embed.weight.unsqueeze(1))
         # Robot state token.
         if self.use_robot_state:
-            encoder_in_tokens.append(self.encoder_robot_state_input_proj(batch["observation.state"]))
+            robot_state = self._get_robot_state(batch)
+            encoder_in_tokens.append(self.encoder_robot_state_input_proj(robot_state))
         # Environment state token.
         if self.use_env_state:
             encoder_in_tokens.append(

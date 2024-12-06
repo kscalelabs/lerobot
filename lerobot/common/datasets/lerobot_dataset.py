@@ -744,13 +744,19 @@ class LeRobotDataset(torch.utils.data.Dataset):
         you can do it later with dataset.consolidate(). This is to give more flexibility on when to spend
         time for video encoding.
         """
+        import time
+        start_time = time.time()
+        
+        logging.debug("Starting episode save...")
+        
+        # Initial setup and validation
+        t0 = time.time()
         if not episode_data:
             episode_buffer = self.episode_buffer
 
         episode_length = episode_buffer.pop("size")
         episode_index = episode_buffer["episode_index"]
         if episode_index != self.meta.total_episodes:
-            # TODO(aliberts): Add option to use existing episode_index
             raise NotImplementedError(
                 "You might have manually provided the episode_buffer with an episode_index that doesn't "
                 "match the total number of episodes in the dataset. This is not supported for now."
@@ -760,12 +766,17 @@ class LeRobotDataset(torch.utils.data.Dataset):
             raise ValueError(
                 "You must add one or several frames with `add_frame` before calling `add_episode`."
             )
+        logging.debug(f"Initial setup and validation took {time.time() - t0:.2f}s")
 
+        # Get task index
+        t0 = time.time()
         task_index = self.meta.get_task_index(task)
-
         if not set(episode_buffer.keys()) == set(self.features):
             raise ValueError()
+        logging.debug(f"Task index lookup took {time.time() - t0:.2f}s")
 
+        # Process episode buffer
+        t0 = time.time()
         for key, ft in self.features.items():
             if key == "index":
                 episode_buffer[key] = np.arange(
@@ -783,21 +794,40 @@ class LeRobotDataset(torch.utils.data.Dataset):
                 episode_buffer[key] = np.stack(episode_buffer[key])
             else:
                 raise ValueError(key)
+        logging.debug(f"Episode buffer processing took {time.time() - t0:.2f}s")
 
+        # Wait for image writer and save episode table
+        t0 = time.time()
         self._wait_image_writer()
+        logging.debug(f"Image writer wait took {time.time() - t0:.2f}s")
+        
+        t0 = time.time()
         self._save_episode_table(episode_buffer, episode_index)
+        logging.debug(f"Episode table save took {time.time() - t0:.2f}s")
 
+        # Save episode metadata
+        t0 = time.time()
         self.meta.save_episode(episode_index, episode_length, task, task_index)
+        logging.debug(f"Episode metadata save took {time.time() - t0:.2f}s")
 
+        # Handle video encoding
         if encode_videos and len(self.meta.video_keys) > 0:
+            t0 = time.time()
             video_paths = self.encode_episode_videos(episode_index)
             for key in self.meta.video_keys:
                 episode_buffer[key] = video_paths[key]
+            logging.debug(f"Video encoding took {time.time() - t0:.2f}s")
 
-        if not episode_data:  # Reset the buffer
+        # Reset buffer if needed
+        t0 = time.time()
+        if not episode_data:
             self.episode_buffer = self.create_episode_buffer()
+        logging.debug(f"Buffer reset took {time.time() - t0:.2f}s")
 
         self.consolidated = False
+        
+        total_time = time.time() - start_time
+        logging.debug(f"Total episode save time: {total_time:.2f}s")
 
     def _save_episode_table(self, episode_buffer: dict, episode_index: int) -> None:
         episode_dict = {key: episode_buffer[key] for key in self.hf_features}
@@ -874,36 +904,59 @@ class LeRobotDataset(torch.utils.data.Dataset):
         return video_paths
 
     def consolidate(self, run_compute_stats: bool = True, keep_image_files: bool = False) -> None:
+        import time
+        start_time = time.time()
+        
+        logging.debug("Starting dataset consolidation...")
+        
+        # Load dataset and check timestamps
+        t0 = time.time()
         self.hf_dataset = self.load_hf_dataset()
         self.episode_data_index = get_episode_data_index(self.meta.episodes, self.episodes)
         check_timestamps_sync(self.hf_dataset, self.episode_data_index, self.fps, self.tolerance_s)
+        logging.debug(f"Loading dataset and checking timestamps took {time.time() - t0:.2f}s")
 
+        # Handle video encoding if needed
         if len(self.meta.video_keys) > 0:
+            t0 = time.time()
             self.encode_videos()
             self.meta.write_video_info()
+            logging.debug(f"Video encoding and info writing took {time.time() - t0:.2f}s")
 
+        # Clean up image files if requested
         if not keep_image_files:
+            t0 = time.time()
             img_dir = self.root / "images"
             if img_dir.is_dir():
                 shutil.rmtree(self.root / "images")
+            logging.debug(f"Image cleanup took {time.time() - t0:.2f}s")
 
+        # Verify file counts
+        t0 = time.time()
         video_files = list(self.root.rglob("*.mp4"))
         assert len(video_files) == self.num_episodes * len(self.meta.video_keys)
 
         parquet_files = list(self.root.rglob("*.parquet"))
         assert len(parquet_files) == self.num_episodes
+        logging.debug(f"File count verification took {time.time() - t0:.2f}s")
 
+        # Compute statistics if requested
+        logging.debug(f"run_compute_stats: {run_compute_stats}")
         if run_compute_stats:
+            t0 = time.time()
             self.stop_image_writer()
-            # TODO(aliberts): refactor stats in save_episodes
             self.meta.stats = compute_stats(self)
             serialized_stats = serialize_dict(self.meta.stats)
             write_json(serialized_stats, self.root / STATS_PATH)
             self.consolidated = True
+            logging.debug(f"Statistics computation took {time.time() - t0:.2f}s")
         else:
             logging.warning(
                 "Skipping computation of the dataset statistics, dataset is not fully consolidated."
             )
+
+        total_time = time.time() - start_time
+        logging.debug(f"Total consolidation time: {total_time:.2f}s")
 
     @classmethod
     def create(

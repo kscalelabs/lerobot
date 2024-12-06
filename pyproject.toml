@@ -72,7 +72,6 @@ hello-robot-stretch-body = {version = ">=0.7.27", markers = "sys_platform == 'li
 pyserial = {version = ">=3.5", optional = true}
 jsonlines = ">=4.0.0"
 krec = { git = "https://github.com/kscalelabs/krec.git" }
-eva-decord = ">0.6.1"
 
 [tool.poetry.extras]
 dora = ["gym-dora"]
