@@ -143,6 +143,8 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         features=GPR_FEATURES,
         tolerance_s=TOLERANCE_S,  # timestep indexing tolerance in seconds based on fps
         use_videos=True,
+        image_writer_processes=4,
+        image_writer_threads=4,
     )
 
     print("Camera keys:", dataset.meta.camera_keys)
