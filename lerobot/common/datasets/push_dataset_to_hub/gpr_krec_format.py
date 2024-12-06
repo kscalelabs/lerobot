@@ -33,6 +33,14 @@ from lerobot.common.datasets.push_dataset_to_hub.utils import (
 from lerobot.common.datasets.utils import hf_transform_to_torch
 from lerobot.common.datasets.video_utils import VideoFrame, encode_video_frames
 
+import logging
+
+# Setup logging
+logging.basicConfig(
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 KREC_VIDEO_WIDTH = 640
 KREC_VIDEO_HEIGHT = 480
 
@@ -107,13 +115,13 @@ def convert_quaternion_to_euler(quat):
 
 def check_format(raw_dir) -> bool:
     """Verify KREC files have expected structure"""
-    print(f"[DEBUG] Checking format for directory: {raw_dir}")
+    logger.debug(f"Checking format for directory: {raw_dir}")
     krec_paths = list(raw_dir.glob("*.krec.mkv"))
     assert len(krec_paths) > 0, "No KREC files found"
-    print(f"[DEBUG] Found {len(krec_paths)} KREC files")
+    logger.debug(f"Found {len(krec_paths)} KREC files")
 
     for krec_path in krec_paths:
-        print(f"[DEBUG] Checking file: {krec_path}")
+        logger.debug(f"Checking file: {krec_path}")
         krec_obj = load_krec_from_mkv(str(krec_path))
         first_frame = krec_obj[0]
 
@@ -134,23 +142,23 @@ def load_from_raw(
     encoding: dict | None = None,
 ):
     start_time = time.time()
-    print(f"[TIMING] Starting load_from_raw")
+    logger.debug("Starting load_from_raw")
 
-    print(f"[DEBUG] Loading raw data from: {raw_dir}")
+    logger.debug(f"Loading raw data from: {raw_dir}")
     krec_files = sorted(raw_dir.glob("*.krec.mkv"))
     num_episodes = len(krec_files)
-    print(f"[DEBUG] Found {len(krec_files)} total KREC files")
+    logger.debug(f"Found {len(krec_files)} total KREC files")
 
     ep_dicts = []
     ep_ids = episodes if episodes else range(num_episodes)
-    print(f"[DEBUG] Processing episodes: {list(ep_ids)}")
+    logger.debug(f"Processing episodes: {list(ep_ids)}")
 
     for ep_idx in tqdm(ep_ids):
         ep_start = time.time()
-        print(f"[TIMING] Starting episode {ep_idx}")
+        logger.debug(f"Starting episode {ep_idx}")
 
         ep_path = krec_files[ep_idx]
-        print(f"[DEBUG] Processing episode {ep_idx} from file: {ep_path}")
+        logger.debug(f"Processing episode {ep_idx} from file: {ep_path}")
         krec_obj = load_krec_from_mkv(str(ep_path))
 
         # Initialize video reader
@@ -259,10 +267,10 @@ def load_from_raw(
         }
         ep_dicts.append(ep_dict)
 
-        print(f"[TIMING] Episode {ep_idx} took {time.time() - ep_start:.2f} seconds")
+        logger.debug(f"Episode {ep_idx} took {time.time() - ep_start:.2f} seconds")
 
-    print(f"[TIMING] Total load_from_raw took {time.time() - start_time:.2f} seconds")
-    print(f"[DEBUG] Concatenating {len(ep_dicts)} episodes")
+    logger.debug(f"Total load_from_raw took {time.time() - start_time:.2f} seconds")
+    logger.debug(f"Concatenating {len(ep_dicts)} episodes")
     data_dict = concatenate_episodes(ep_dicts)
     total_frames = data_dict["frame_index"].shape[0]
     data_dict["index"] = torch.arange(0, total_frames, 1)
@@ -272,10 +280,10 @@ def load_from_raw(
 
 def to_hf_dataset(data_dict, video) -> Dataset:
     start_time = time.time()
-    print("[TIMING] Starting to_hf_dataset conversion")
+    logger.debug("Starting to_hf_dataset conversion")
 
-    print("[DEBUG] Converting to HuggingFace dataset format")
-    print(f"[DEBUG] Input data_dict keys: {list(data_dict.keys())}")
+    logger.debug("Converting to HuggingFace dataset format")
+    logger.debug(f"Input data_dict keys: {list(data_dict.keys())}")
     features = {
         "observation.state": Sequence(
             length=data_dict["observation.state"].shape[1],
@@ -312,13 +320,13 @@ def to_hf_dataset(data_dict, video) -> Dataset:
         "index": Value(dtype="int64", id=None),
     }
 
-    print("[DEBUG] Creating HuggingFace dataset")
+    logger.debug("Creating HuggingFace dataset")
     hf_dataset = Dataset.from_dict(data_dict, features=Features(features))
-    print(f"[DEBUG] Dataset size: {len(hf_dataset)}")
-    print("[DEBUG] Setting transform function")
+    logger.debug(f"Dataset size: {len(hf_dataset)}")
+    logger.debug("Setting transform function")
     hf_dataset.set_transform(hf_transform_to_torch)
 
-    print(f"[TIMING] to_hf_dataset took {time.time() - start_time:.2f} seconds")
+    logger.debug(f"to_hf_dataset took {time.time() - start_time:.2f} seconds")
     return hf_dataset
 
 
@@ -331,25 +339,25 @@ def from_raw_to_lerobot_format(
     encoding: dict | None = None,
 ):
     total_start = time.time()
-    print("[TIMING] Starting full conversion process")
+    logger.debug("Starting full conversion process")
 
-    print(f"[DEBUG] Starting conversion from raw to LeRobot format")
-    print(f"[DEBUG] Parameters:")
-    print(f"[DEBUG] - raw_dir: {raw_dir}")
-    print(f"[DEBUG] - videos_dir: {videos_dir}")
-    print(f"[DEBUG] - fps: {fps}")
-    print(f"[DEBUG] - video: {video}")
-    print(f"[DEBUG] - episodes: {episodes}")
-    print(f"[DEBUG] - encoding: {encoding}")
+    logger.debug("Starting conversion from raw to LeRobot format")
+    logger.debug(f"Parameters:")
+    logger.debug(f"- raw_dir: {raw_dir}")
+    logger.debug(f"- videos_dir: {videos_dir}")
+    logger.debug(f"- fps: {fps}")
+    logger.debug(f"- video: {video}")
+    logger.debug(f"- episodes: {episodes}")
+    logger.debug(f"- encoding: {encoding}")
     check_format(raw_dir)
 
     if fps is None:
         fps = 50  # Default FPS for your dataset
-        print(f"[DEBUG] Using default FPS: {fps}")
+        logger.debug(f"Using default FPS: {fps}")
 
     data_dict = load_from_raw(raw_dir, videos_dir, fps, video, episodes, encoding)
     hf_dataset = to_hf_dataset(data_dict, video)
-    print("[DEBUG] Calculating episode data index")
+    logger.debug("Calculating episode data index")
     episode_data_index = calculate_episode_data_index(hf_dataset)
 
     info = {
@@ -357,9 +365,9 @@ def from_raw_to_lerobot_format(
         "fps": fps,
         "video": video,
     }
-    print(f"[DEBUG] Final info: {info}")
+    logger.debug(f"Final info: {info}")
 
-    print(f"[TIMING] Total conversion took {time.time() - total_start:.2f} seconds")
+    logger.debug(f"Total conversion took {time.time() - total_start:.2f} seconds")
     return hf_dataset, episode_data_index, info
 
 
@@ -389,10 +397,10 @@ if __name__ == "__main__":
     videos_dir = Path(args.videos_dir)
     videos_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Converting raw KREC data to LeRobot format...")
+    logger.info("Converting raw KREC data to LeRobot format...")
     hf_dataset, episode_data_index, info = from_raw_to_lerobot_format(
         raw_dir=raw_dir, videos_dir=videos_dir, fps=args.fps, video=args.video
     )
-    print("Conversion completed!")
-    print("\nDataset info:")
+    logger.info("Conversion completed!")
+    logger.info("\nDataset info:")
     pprint(hf_dataset)

@@ -196,9 +196,7 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         print(f"Done saving episode {ep_idx}")
 
     print("Consolidating dataset...")
-    compute_stats_flag = True
-    print(f"compute_stats_flag={compute_stats_flag}")
-    dataset.consolidate(run_compute_stats=compute_stats_flag)
+    dataset.consolidate(run_compute_stats=True)
     print("Done consolidating dataset")
     video_readers.clear()
 
