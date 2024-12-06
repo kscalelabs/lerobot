@@ -34,8 +34,6 @@ from lerobot.common.datasets.push_dataset_to_hub.gpr_krec_format import \
     
 import tqdm
 
-import logging
-logging.basicConfig(level=logging.DEBUG)
 
 NUM_ACTUATORS = 5
 KREC_VIDEO_WIDTH = 640
