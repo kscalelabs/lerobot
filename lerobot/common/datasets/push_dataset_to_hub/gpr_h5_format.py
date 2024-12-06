@@ -6,13 +6,14 @@ Example Usage:
 """
 
 import argparse
+from pathlib import Path
+from pprint import pprint
+
 import h5py
 import numpy as np
 import torch
-from pathlib import Path
 from datasets import Dataset, Features, Sequence, Value
 from tqdm import tqdm
-from pprint import pprint
 
 from lerobot.common.datasets.lerobot_dataset import CODEBASE_VERSION
 from lerobot.common.datasets.push_dataset_to_hub.utils import (
@@ -99,6 +100,7 @@ def load_from_raw(
             done[-1] = True
 
             ep_dict = {
+                "observation.state": joint_pos,
                 "observation.joint_pos": joint_pos,
                 "observation.joint_vel": joint_vel,
                 "observation.ang_vel": ang_vel,
@@ -129,6 +131,10 @@ def to_hf_dataset(data_dict, video) -> Dataset:
     print("[DEBUG] Converting to HuggingFace dataset format")
     print(f"[DEBUG] Input data_dict keys: {list(data_dict.keys())}")
     features = {
+        "observation.state": Sequence(
+            length=data_dict["observation.state"].shape[1],
+            feature=Value(dtype="float32", id=None),
+        ),
         "observation.joint_pos": Sequence(
             length=data_dict["observation.joint_pos"].shape[1],
             feature=Value(dtype="float32", id=None),

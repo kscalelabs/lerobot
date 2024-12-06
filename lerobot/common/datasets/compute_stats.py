@@ -63,21 +63,27 @@ def get_stats_einops_patterns(dataset, num_workers=0):
     return stats_patterns
 
 
-def compute_stats(dataset, batch_size=8, num_workers=8, max_num_samples=None):
+def compute_stats(dataset, batch_size=8, num_workers=0, max_num_samples=1000):
     """Compute mean/std and min/max statistics of all data keys in a LeRobotDataset."""
     if max_num_samples is None:
         max_num_samples = len(dataset)
+    else:
+        max_num_samples = min(max_num_samples, len(dataset))
+
+    # Calculate the actual number of batches we'll process
+    total_batches = ceil(max_num_samples / batch_size)
 
     # for more info on why we need to set the same number of workers, see `load_from_videos`
     stats_patterns = get_stats_einops_patterns(dataset, num_workers)
 
     # mean and std will be computed incrementally while max and min will track the running value.
-    mean, std, max, min = {}, {}, {}, {}
+    # Rename 'min' and 'max' to 'min_val' and 'max_val' to avoid naming conflicts
+    mean, std, max_val, min_val = {}, {}, {}, {}
     for key in stats_patterns:
         mean[key] = torch.tensor(0.0).float()
         std[key] = torch.tensor(0.0).float()
-        max[key] = torch.tensor(-float("inf")).float()
-        min[key] = torch.tensor(float("inf")).float()
+        max_val[key] = torch.tensor(-float("inf")).float()
+        min_val[key] = torch.tensor(float("inf")).float()
 
     def create_seeded_dataloader(dataset, batch_size, seed):
         generator = torch.Generator()
@@ -98,7 +104,7 @@ def compute_stats(dataset, batch_size=8, num_workers=8, max_num_samples=None):
     running_item_count = 0  # for online mean computation
     dataloader = create_seeded_dataloader(dataset, batch_size, seed=1337)
     for i, batch in enumerate(
-        tqdm.tqdm(dataloader, total=ceil(max_num_samples / batch_size), desc="Compute mean, min, max")
+        tqdm.tqdm(dataloader, total=total_batches, desc="Compute mean, min, max")
     ):
         this_batch_size = len(batch["index"])
         running_item_count += this_batch_size
@@ -114,17 +120,17 @@ def compute_stats(dataset, batch_size=8, num_workers=8, max_num_samples=None):
             # numerical overflow. Another hint: Nₙ₋₁ = Nₙ - Bₙ. Rearrangement yields
             # x̄ₙ = x̄ₙ₋₁ + Bₙ * (xₙ - x̄ₙ₋₁) / Nₙ
             mean[key] = mean[key] + this_batch_size * (batch_mean - mean[key]) / running_item_count
-            max[key] = torch.maximum(max[key], einops.reduce(batch[key], pattern, "max"))
-            min[key] = torch.minimum(min[key], einops.reduce(batch[key], pattern, "min"))
+            max_val[key] = torch.maximum(max_val[key], einops.reduce(batch[key], pattern, "max"))
+            min_val[key] = torch.minimum(min_val[key], einops.reduce(batch[key], pattern, "min"))
 
-        if i == ceil(max_num_samples / batch_size) - 1:
+        if i >= total_batches - 1:
             break
 
     first_batch_ = None
     running_item_count = 0  # for online std computation
     dataloader = create_seeded_dataloader(dataset, batch_size, seed=1337)
     for i, batch in enumerate(
-        tqdm.tqdm(dataloader, total=ceil(max_num_samples / batch_size), desc="Compute std")
+        tqdm.tqdm(dataloader, total=total_batches, desc="Compute std")
     ):
         this_batch_size = len(batch["index"])
         running_item_count += this_batch_size
@@ -140,7 +146,7 @@ def compute_stats(dataset, batch_size=8, num_workers=8, max_num_samples=None):
             batch_std = einops.reduce((batch[key] - mean[key]) ** 2, pattern, "mean")
             std[key] = std[key] + this_batch_size * (batch_std - std[key]) / running_item_count
 
-        if i == ceil(max_num_samples / batch_size) - 1:
+        if i >= total_batches - 1:
             break
 
     for key in stats_patterns:
@@ -151,8 +157,8 @@ def compute_stats(dataset, batch_size=8, num_workers=8, max_num_samples=None):
         stats[key] = {
             "mean": mean[key],
             "std": std[key],
-            "max": max[key],
-            "min": min[key],
+            "max": max_val[key],
+            "min": min_val[key],
         }
     return stats
 

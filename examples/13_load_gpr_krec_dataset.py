@@ -18,8 +18,10 @@ Run visualize script to check the dataset:
         --local-files-only 1 \
         --episode-index 0
 """
+
 import argparse
 import shutil
+import tqdm
 from pathlib import Path
 from pprint import pprint
 
@@ -29,16 +31,23 @@ import torch
 from PIL import Image, ImageDraw
 
 from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-from lerobot.common.datasets.push_dataset_to_hub.gpr_krec_format import \
-    from_raw_to_lerobot_format
+from lerobot.common.datasets.push_dataset_to_hub.gpr_krec_format import (
+    from_raw_to_lerobot_format,
+)
+
 
 NUM_ACTUATORS = 5
 KREC_VIDEO_WIDTH = 640
 KREC_VIDEO_HEIGHT = 480
 TOLERANCE_S = 0.03
-REPO_ID = "gpr_test_krec"
+REPO_ID = "gpr_test_krec_full_w_stats"
 
 GPR_FEATURES = {
+    "observation.state": {
+        "dtype": "float32",
+        "shape": (NUM_ACTUATORS,),
+        "names": ["state"],  # these are just the joint positions
+    },
     "observation.joint_pos": {
         "dtype": "float32",
         "shape": (NUM_ACTUATORS,),
@@ -59,7 +68,7 @@ GPR_FEATURES = {
         "shape": (3,),
         "names": ["euler_angles"],
     },
-    "observation.images": {
+    "observation.images.camera": {
         "dtype": "video",
         "shape": (KREC_VIDEO_HEIGHT, KREC_VIDEO_WIDTH, 3),
         "names": ["frames"],
@@ -93,11 +102,11 @@ def generate_test_video_frame(width: int, height: int, frame_idx: int) -> Image:
 
 def load_video_frames_batch(video_path: str, num_frames: int) -> np.ndarray:
     """Load all video frames at once using decord.
-    
+
     Args:
         video_path: Path to the video file
         num_frames: Number of frames to load
-        
+
     Returns:
         np.ndarray: Batch of video frames in (N, H, W, C) format
     """
@@ -133,7 +142,9 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         fps=fps,
         features=GPR_FEATURES,
         tolerance_s=TOLERANCE_S,  # timestep indexing tolerance in seconds based on fps
-        use_videos=True
+        use_videos=True,
+        image_writer_processes=4,
+        image_writer_threads=4,
     )
 
     print("Camera keys:", dataset.meta.camera_keys)
@@ -149,39 +160,43 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         num_frames = to_idx - from_idx
 
         # Load all video frames for this episode at once
-        video_path = next(raw_dir.glob("*.krec.mkv"))  # Adjust this if you have multiple video files
+        video_path = next(
+            raw_dir.glob("*.krec.mkv")
+        )  # Adjust this if you have multiple video files
         video_frames_batch = load_video_frames_batch(str(video_path), num_frames)
-        
-        for frame_idx in range(num_frames):
+
+        for frame_idx in tqdm.tqdm(
+            range(num_frames), desc=f"Processing frames for episode {ep_idx}"
+        ):
             i = from_idx + frame_idx
             frame_data = hf_dataset[i]
 
             frame = {
                 key: frame_data[key].numpy().astype(np.float32)
                 for key in [
+                    "observation.state",
                     "observation.joint_pos",
-                    "observation.joint_vel", 
+                    "observation.joint_vel",
                     "observation.ang_vel",
                     "observation.euler_rotation",
                     "action",
                 ]
             }
             # Use the pre-loaded video frame, clamping frame_idx if needed
-            clamped_idx = min(frame_idx, len(video_frames_batch)-1)
-            frame["observation.images"] = video_frames_batch[clamped_idx]
+            clamped_idx = min(frame_idx, len(video_frames_batch) - 1)
+            frame["observation.images.camera"] = video_frames_batch[clamped_idx]
             frame["timestamp"] = frame_data["timestamp"]
 
             dataset.add_frame(frame)
-
         print(f"Saving episode {ep_idx}")
         dataset.save_episode(
-            task="walk forward",
+            task="krec_test",
             encode_videos=True,
         )
         print(f"Done saving episode {ep_idx}")
 
     print("Consolidating dataset...")
-    dataset.consolidate()
+    dataset.consolidate(run_compute_stats=True)
     print("Done consolidating dataset")
     video_readers.clear()
 
@@ -235,11 +250,12 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
     # differences with the current loaded frame. For instance:
     delta_timestamps = {
         # 0 is current frame, -1/fps is 1 frame in the past
+        "observation.state": [0, -1 / dataset.fps],
         "observation.joint_pos": [0, -1 / dataset.fps],
         "observation.joint_vel": [0, -1 / dataset.fps],
         "observation.ang_vel": [0, -1 / dataset.fps],
         "observation.euler_rotation": [0, -1 / dataset.fps],
-        "observation.images": [0, -1 / dataset.fps],
+        "observation.images.camera": [0, -1 / dataset.fps],
         # loads 64 action vectors: current frame, 1 frame in the future, 2 frames, ... 63 frames in the future
         "action": [t / dataset.fps for t in range(64)],
     }
@@ -252,7 +268,7 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
         local_files_only=True,
         tolerance_s=TOLERANCE_S,
     )
-    print(f"\n{dataset[0]['observation.images'].shape=}")  # (4, c, h, w)
+    print(f"\n{dataset[0]['observation.images.camera'].shape=}")  # (4, c, h, w)
     print(f"{dataset[0]['observation.joint_pos'].shape=}")  # (6, c)
     print(f"{dataset[0]['action'].shape=}\n")  # (64, c)
 
@@ -266,12 +282,13 @@ def test_gpr_dataset(raw_dir: Path, videos_dir: Path, fps: int):
     )
 
     for batch in dataloader:
-        print(f"{batch['observation.joint_pos'].shape=}")
-        print(f"{batch['observation.joint_vel'].shape=}")
-        print(f"{batch['observation.ang_vel'].shape=}")
-        print(f"{batch['observation.euler_rotation'].shape=}")
-        print(f"{batch['observation.images'].shape=}")
-        print(f"{batch['action'].shape=}")
+
+        # Print shapes for all keys in batch that have a shape attribute
+        for key in batch:
+            if hasattr(batch[key], "shape"):
+                print(f"{key}={batch[key].shape}")
+            else:
+                print(f"Key with no shape: {key}")
         break
 
 
